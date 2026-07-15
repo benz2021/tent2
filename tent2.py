@@ -34,42 +34,53 @@ class ImageLayoutApp:
         try:
             # แปลง GitHub URL เป็น API URL
             if "github.com" in repo_url:
-                # แปลง URL เช่น https://github.com/username/repo -> https://api.github.com/repos/username/repo
                 api_url = repo_url.replace("github.com", "api.github.com/repos")
                 if not api_url.endswith("/contents"):
                     api_url = api_url.rstrip("/") + "/contents"
-                
                 if path:
                     api_url = api_url + "/" + path
             else:
-                # ถ้าเป็น raw URL หรืออื่นๆ
                 return []
             
             response = requests.get(api_url)
             if response.status_code == 200:
                 files = response.json()
+                
+                # ป้องกันกรณี API คืนค่าเป็น Dict ตัวเดียว (เช่น กรณีใส่ URL ชี้ไปที่ไฟล์โดยตรง)
+                if isinstance(files, dict):
+                    files = [files]
+                    
                 image_files = []
-                for file in files:
-                    if file['type'] == 'file':
-                        ext = os.path.splitext(file['name'])[1].lower()
-                        if ext in ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff']:
-                            image_files.append({
-                                'name': file['name'],
-                                'download_url': file['download_url'],
-                                'path': file['path'],
-                                'source': 'github'
-                            })
-                    elif file['type'] == 'dir':
-                        # ดึงไฟล์จาก subdirectory
-                        sub_files = self.get_github_files(repo_url, file['path'])
-                        image_files.extend(sub_files)
+                
+                if isinstance(files, list):
+                    for file in files:
+                        # ตรวจสอบว่าเป็น dict หรือไม่
+                        if not isinstance(file, dict):
+                            continue
+                            
+                        if file.get('type') == 'file':
+                            ext = os.path.splitext(file.get('name', ''))[1].lower()
+                            if ext in ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff']:
+                                # ใช้ .get() เพื่อป้องกัน KeyError
+                                download_url = file.get('download_url')
+                                if download_url:
+                                    image_files.append({
+                                        'name': file.get('name'),
+                                        'download_url': download_url,
+                                        'path': file.get('path'),
+                                        'source': 'github'
+                                    })
+                        elif file.get('type') == 'dir':
+                            # ดึงไฟล์จาก subdirectory
+                            sub_files = self.get_github_files(repo_url, file.get('path'))
+                            image_files.extend(sub_files)
                 
                 return image_files
             else:
-                st.error(f"ไม่สามารถเชื่อมต่อ GitHub: {response.status_code}")
+                st.error(f"ไม่สามารถเชื่อมต่อ GitHub: รหัสข้อผิดพลาด {response.status_code}")
                 return []
         except Exception as e:
-            st.error(f"เกิดข้อผิดพลาด: {str(e)}")
+            st.error(f"เกิดข้อผิดพลาดในการเชื่อมต่อ GitHub: {str(e)}")
             return []
     
     def load_image_from_url(self, url):
@@ -87,15 +98,20 @@ class ImageLayoutApp:
             return None
 
     def load_image(self, file_info):
-        """โหลดภาพจาก file_info โดยรองรับทั้งไฟล์ที่อัปโหลดจากเครื่อง
-        และไฟล์ที่ดึงจาก GitHub (เลือกวิธีโหลดตามคีย์ 'source')"""
+        """โหลดภาพจาก file_info โดยรองรับทั้งไฟล์ที่อัปโหลดจากเครื่องและไฟล์ที่ดึงจาก GitHub"""
         try:
             if file_info.get('source') == 'upload':
                 return Image.open(io.BytesIO(file_info['bytes']))
             else:
-                return self.load_image_from_url(file_info['download_url'])
+                # ใช้ .get() เพื่อความปลอดภัย
+                download_url = file_info.get('download_url')
+                if download_url:
+                    return self.load_image_from_url(download_url)
+                else:
+                    st.warning(f"ข้ามไฟล์ {file_info.get('name')} เนื่องจากไม่พบ URL ดาวน์โหลด")
+                    return None
         except Exception as e:
-            st.error(f"ไม่สามารถเปิดภาพ {file_info.get('name', '')}: {str(e)}")
+            st.error(f"ไม่สามารถเปิดภาพ {file_info.get('name', 'Unknown')}: {str(e)}")
             return None
     
     def generate_preview(self):
