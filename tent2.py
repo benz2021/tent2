@@ -56,7 +56,8 @@ class ImageLayoutApp:
                             image_files.append({
                                 'name': file['name'],
                                 'download_url': file['download_url'],
-                                'path': file['path']
+                                'path': file['path'],
+                                'source': 'github'
                             })
                     elif file['type'] == 'dir':
                         # ดึงไฟล์จาก subdirectory
@@ -83,6 +84,18 @@ class ImageLayoutApp:
                 return None
         except Exception as e:
             st.error(f"เกิดข้อผิดพลาด: {str(e)}")
+            return None
+
+    def load_image(self, file_info):
+        """โหลดภาพจาก file_info โดยรองรับทั้งไฟล์ที่อัปโหลดจากเครื่อง
+        และไฟล์ที่ดึงจาก GitHub (เลือกวิธีโหลดตามคีย์ 'source')"""
+        try:
+            if file_info.get('source') == 'upload':
+                return Image.open(io.BytesIO(file_info['bytes']))
+            else:
+                return self.load_image_from_url(file_info['download_url'])
+        except Exception as e:
+            st.error(f"ไม่สามารถเปิดภาพ {file_info.get('name', '')}: {str(e)}")
             return None
     
     def generate_preview(self):
@@ -118,8 +131,8 @@ class ImageLayoutApp:
             
             # อ่านและสร้างภาพแต่ละแผ่น
             for idx, file_info in enumerate(self.image_files):
-                # โหลดภาพจาก URL
-                img = self.load_image_from_url(file_info['download_url'])
+                # โหลดภาพ (รองรับทั้งไฟล์อัปโหลดจากเครื่องและไฟล์จาก GitHub)
+                img = self.load_image(file_info)
                 if img is None:
                     continue
                 
@@ -325,27 +338,58 @@ def main():
     with st.sidebar:
         st.header("⚙️ การตั้งค่า")
         
-        # ส่วนของ GitHub
-        st.subheader("📂 ดึงไฟล์จาก GitHub")
+        # เลือกแหล่งที่มาของภาพ
+        st.subheader("🗂️ แหล่งที่มาของภาพ")
         
-        github_url = st.text_input(
-            "URL GitHub Repository:",
-            placeholder="https://github.com/username/repository",
-            key="github_url"
+        source_mode = st.radio(
+            "เลือกวิธีนำเข้าภาพ:",
+            ["💻 อัปโหลดจากเครื่อง", "📂 ดึงจาก GitHub"],
+            key="source_mode"
         )
         
-        if st.button("🔍 ดึงภาพจาก GitHub"):
-            if github_url:
-                with st.spinner("กำลังดึงไฟล์จาก GitHub..."):
-                    files = app.get_github_files(github_url)
-                    if files:
-                        app.image_files = files
-                        app.image_paths = [f['name'] for f in files]
-                        st.success(f"พบภาพ {len(files)} ไฟล์")
-                    else:
-                        st.warning("ไม่พบไฟล์ภาพใน GitHub repository นี้")
+        if source_mode == "💻 อัปโหลดจากเครื่อง":
+            uploaded_files = st.file_uploader(
+                "เลือกไฟล์ภาพ (เลือกได้หลายไฟล์):",
+                type=['jpg', 'jpeg', 'png', 'bmp', 'gif', 'tiff'],
+                accept_multiple_files=True,
+                key="local_uploader"
+            )
+            
+            if uploaded_files:
+                app.image_files = [
+                    {
+                        'name': f.name,
+                        'bytes': f.getvalue(),
+                        'source': 'upload'
+                    }
+                    for f in uploaded_files
+                ]
+                app.image_paths = [f.name for f in uploaded_files]
             else:
-                st.warning("กรุณาใส่ URL ของ GitHub repository")
+                # ถ้าไม่มีไฟล์อัปโหลด (หรือถูกล้างออก) และแหล่งข้อมูลก่อนหน้าคืออัปโหลด ให้เคลียร์รายการ
+                if app.image_files and app.image_files[0].get('source') == 'upload':
+                    app.image_files = []
+                    app.image_paths = []
+        
+        else:  # 📂 ดึงจาก GitHub
+            github_url = st.text_input(
+                "URL GitHub Repository:",
+                placeholder="https://github.com/username/repository",
+                key="github_url"
+            )
+            
+            if st.button("🔍 ดึงภาพจาก GitHub"):
+                if github_url:
+                    with st.spinner("กำลังดึงไฟล์จาก GitHub..."):
+                        files = app.get_github_files(github_url)
+                        if files:
+                            app.image_files = files
+                            app.image_paths = [f['name'] for f in files]
+                            st.success(f"พบภาพ {len(files)} ไฟล์")
+                        else:
+                            st.warning("ไม่พบไฟล์ภาพใน GitHub repository นี้")
+                else:
+                    st.warning("กรุณาใส่ URL ของ GitHub repository")
         
         # แสดงรายการไฟล์ที่พบ
         if app.image_files:
