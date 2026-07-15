@@ -1,8 +1,7 @@
 import streamlit as st
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 import os
 import io
-import base64
 import requests
 import tempfile
 from pathlib import Path
@@ -232,4 +231,4 @@ class ImageLayoutApp:
                     label="📊 ดาวน์โหลด PowerPoint (PPTX)",
                     data=pptx_bytes,
                     file_name="output.pptx",
-                    mime="
+                    mime="application
